@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from loglens.cli import _write_report
+from loglens.output import write_text
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = ROOT / "examples" / "checkout.log"
@@ -31,7 +31,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(data["top_error_messages"], [{"message": "Upstream timeout", "count": 2}])
 
     def test_help_and_version(self):
-        for flag, expected in [("--help", "--service"), ("--version", "loglens 0.1.0")]:
+        for flag, expected in [("--help", "--service"), ("--version", "loglens 0.2.0")]:
             result = cli(flag)
             self.assertEqual(result.returncode, 0)
             self.assertIn(expected, result.stdout)
@@ -87,7 +87,7 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "report"
             path.write_bytes(b"previous")
-            with patch("loglens.cli.os.replace", side_effect=PermissionError), self.assertRaises(PermissionError):
-                _write_report(path, "new")
+            with patch("loglens.output.os.replace", side_effect=PermissionError), self.assertRaises(PermissionError):
+                write_text(path, "new")
             self.assertEqual(path.read_bytes(), b"previous")
             self.assertEqual(list(Path(tmp).iterdir()), [path])

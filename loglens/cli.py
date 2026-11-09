@@ -1,15 +1,14 @@
 """Command-line boundary for validation, file I/O and exit status."""
 
 import argparse
-import os
 import sys
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 from . import __version__
 from .analysis import Filters, analyze
+from .output import validate_output, write_text
 from .parsing import LEVELS, RecordError, parse_timestamp
 from .reporting import render
 
@@ -41,6 +40,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--service", action="append", help="include this exact service (repeatable)")
     parser.add_argument("--since", type=_timestamp, metavar="TIME", help="inclusive lower timestamp")
     parser.add_argument("--until", type=_timestamp, metavar="TIME", help="inclusive upper timestamp")
+    parser.add_argument("--search", default="", help="case-insensitive message substring")
     parser.add_argument("--top", type=_positive, default=5, metavar="N",
                         help="maximum entries in each ranking (default: 5)")
     parser.add_argument("--format", choices=("text", "json", "html"), default="text",
@@ -49,38 +49,24 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _write_report(path: Path, report: str) -> None:
-    # Keep the previous report intact if writing or replacement fails.
-    tmp: Path | None = None
-    try:
-        with NamedTemporaryFile(mode="w", encoding="utf-8", newline="\n",
-                                dir=path.parent, delete=False) as stream:
-            tmp = Path(stream.name)
-            stream.write(report + "\n")
-        os.replace(tmp, path)
-    finally:
-        if tmp is not None:
-            tmp.unlink(missing_ok=True)
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     if args.since and args.until and args.since > args.until:
         parser.error("--since must be earlier than or equal to --until")
     filters = Filters(frozenset(args.level or ()), frozenset(args.service or ()),
-                      args.since, args.until)
+                      args.since, args.until, args.search)
     try:
         with args.input.open("rb") as lines:
-            if args.output and args.output.exists():
-                if args.output.samefile(args.input):
-                    parser.error("input and output must be different files")
-                if not args.output.is_file():
-                    parser.error("output must be a regular file")
+            if args.output:
+                try:
+                    validate_output(args.output, args.input)
+                except ValueError as exc:
+                    parser.error(str(exc))
             summary = analyze(lines, filters)
         report = render(summary, args.format, args.top)
         if args.output:
-            _write_report(args.output, report)
+            write_text(args.output, report)
         else:
             # Redirected Windows consoles may use a legacy encoding.
             encoding = sys.stdout.encoding or "utf-8"

@@ -1,7 +1,7 @@
 """Single-pass filtering and exact aggregation."""
 
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from heapq import nsmallest
@@ -15,12 +15,14 @@ class Filters:
     services: frozenset[str] = frozenset()
     since: datetime | None = None
     until: datetime | None = None
+    search: str = ""
 
     def matches(self, record: Record) -> bool:
         return (
             (not self.levels or record.level in self.levels)
             and (not self.services or record.service in self.services)
             and (self.since is None or record.timestamp >= self.since)
+            and (not self.search or self.search.casefold() in record.message.casefold())
             and (self.until is None or record.timestamp <= self.until)
         )
 
@@ -36,20 +38,20 @@ class Summary:
     earliest: datetime | None = None
     latest: datetime | None = None
 
-    def include(self, record: Record) -> None:
+    def include(self, record: Record, *, count_keys: bool = True) -> None:
         self.matched += 1
         self.levels[record.level] += 1
         if self.earliest is None or record.timestamp < self.earliest:
             self.earliest = record.timestamp
         if self.latest is None or record.timestamp > self.latest:
             self.latest = record.timestamp
-        if record.level in FAILURES:
+        if count_keys and record.level in FAILURES:
             self.errors[record.message] += 1
             self.failing_services[record.service] += 1
 
 
-def analyze(lines: Iterable[bytes], filters: Filters = Filters()) -> Summary:
-    summary = Summary()
+def matching_records(lines: Iterable[bytes], filters: Filters, summary: Summary) -> Iterator[Record]:
+    """Validate every input line and yield records selected by all filters."""
     for index, raw in enumerate(lines, start=1):
         summary.lines = index
         try:
@@ -58,7 +60,13 @@ def analyze(lines: Iterable[bytes], filters: Filters = Filters()) -> Summary:
             summary.rejected[str(exc)] += 1
             continue
         if filters.matches(record):
-            summary.include(record)
+            yield record
+
+
+def analyze(lines: Iterable[bytes], filters: Filters = Filters()) -> Summary:
+    summary = Summary()
+    for record in matching_records(lines, filters, summary):
+        summary.include(record)
     return summary
 
 
