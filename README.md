@@ -30,7 +30,7 @@ py -3 -m venv .venv
 .\.venv\Scripts\loglens.exe examples/checkout.log
 ```
 
-Cloning requires access to this private repository. On macOS or Linux, create the environment with `python3 -m venv .venv`, then run `.venv/bin/python -m pip install .` and `.venv/bin/loglens examples/checkout.log`. Installation uses setuptools at build time. The installed command has zero third-party runtime dependencies.
+On macOS or Linux, create the environment with `python3 -m venv .venv`, then run `.venv/bin/python -m pip install .` and `.venv/bin/loglens examples/checkout.log`. Installation uses setuptools at build time. The installed command has zero third-party runtime dependencies.
 
 ## Input format
 
