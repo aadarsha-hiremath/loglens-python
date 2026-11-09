@@ -1,0 +1,4 @@
+2026-02-02T13:12:00.100Z | DEBUG | scheduler | Polling work queue
+2026-02-02T13:12:01.250Z | INFO | worker-1 | Started batch
+2026-02-02T13:12:02.500Z | WARNING | scheduler | Queue depth above target
+2026-02-02T08:12:03.750-05:00 | INFO | worker-1 | Finished batch

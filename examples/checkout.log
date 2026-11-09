@@ -1,0 +1,10 @@
+2026-01-15T09:00:00Z | INFO | gateway | Checkout traffic accepted
+2026-01-15T09:00:01Z | DEBUG | cart | Recalculated basket
+2026-01-15T09:00:02Z | ERROR | payments | Upstream timeout
+2026-01-15T09:00:03Z | WARNING | inventory | Stock refresh delayed
+2026-01-15T10:00:04+01:00 | ERROR | payments | Upstream timeout
+2026-01-15T09:00:05Z | INFO | cart | Saved basket
+2026-01-15T09:00:06Z | ERROR | inventory | Rejected SKU <trial> & queued retry
+partial record from worker restart
+2026-01-15T09:00:08Z | CRITICAL | payments | Circuit open
+2026-01-15T09:00:09Z | INFO | gateway | Retry accepted | checkout resumed
