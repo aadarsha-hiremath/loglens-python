@@ -12,7 +12,7 @@ The included fulfillment log has **186 lines, 2 malformed records, and 26 failur
 
 ## Quick start on Windows
 
-From a checkout of the redesign branch, run these PowerShell commands:
+From a checkout of the main branch, run these PowerShell commands:
 
 ```powershell
 py -3 -m venv .venv
