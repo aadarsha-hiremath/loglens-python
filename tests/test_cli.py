@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from loglens.cli import _write_report
+from loglens.output import write_text
 
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = ROOT / "examples" / "checkout.log"
@@ -31,7 +31,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(data["top_error_messages"], [{"message": "Upstream timeout", "count": 2}])
 
     def test_help_and_version(self):
-        for flag, expected in [("--help", "--service"), ("--version", "loglens 0.1.0")]:
+        for flag, expected in [("--help", "--service"), ("--version", "loglens 0.3.0")]:
             result = cli(flag)
             self.assertEqual(result.returncode, 0)
             self.assertIn(expected, result.stdout)
@@ -68,12 +68,12 @@ class CliTests(unittest.TestCase):
     def test_writes_utf8_and_replaces_existing_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             path, output = Path(tmp) / "app.log", Path(tmp) / "report.html"
-            path.write_text("2026-01-01T00:00:00Z | ERROR | api | café & retry", encoding="utf-8")
+            path.write_text("2026-01-01T00:00:00Z | ERROR | api | cafÃ© & retry", encoding="utf-8")
             output.write_text("stale", encoding="utf-8")
             result = cli(path, "--format", "html", "-o", output)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, "")
-            self.assertIn("café &amp; retry", output.read_text(encoding="utf-8"))
+            self.assertIn("cafÃ© &amp; retry", output.read_text(encoding="utf-8"))
 
     def test_refuses_input_as_output(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -87,7 +87,7 @@ class CliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "report"
             path.write_bytes(b"previous")
-            with patch("loglens.cli.os.replace", side_effect=PermissionError), self.assertRaises(PermissionError):
-                _write_report(path, "new")
+            with patch("loglens.output.os.replace", side_effect=PermissionError), self.assertRaises(PermissionError):
+                write_text(path, "new")
             self.assertEqual(path.read_bytes(), b"previous")
             self.assertEqual(list(Path(tmp).iterdir()), [path])

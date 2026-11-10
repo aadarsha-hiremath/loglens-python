@@ -12,12 +12,12 @@ def _utc(stamp: datetime | None) -> str | None:
     return stamp.isoformat().replace("+00:00", "Z") if stamp else None
 
 
-def _visible(value: str) -> str:
+def visible_text(value: str) -> str:
     # Escape terminal controls, bidi overrides and embedded line separators.
     return "".join(char if char.isprintable() else ascii(char)[1:-1] for char in value)
 
 
-def render(summary: Summary, fmt: str, limit: int) -> str:
+def report_data(summary: Summary, limit: int) -> dict:
     malformed = summary.rejected.total()
     failures = summary.levels["ERROR"] + summary.levels["CRITICAL"]
     rate = round(100 * failures / summary.matched, 2) if summary.matched else None
@@ -25,17 +25,27 @@ def render(summary: Summary, fmt: str, limit: int) -> str:
     errors = ranked(summary.errors, limit)
     reasons = sorted(summary.rejected.items())
     first, last = _utc(summary.earliest), _utc(summary.latest)
-    if fmt == "json":
-        return json.dumps({
-            "lines": summary.lines, "malformed": malformed,
-            "filtered_out": summary.lines - malformed - summary.matched,
-            "matched": summary.matched, "failures": failures,
-            "failure_percent": rate, "earliest_utc": first, "latest_utc": last,
-            "levels": dict(summary.levels), "rejection_reasons": dict(reasons),
-            "top_failing_services": [{"service": s, "count": n} for s, n in services],
-            "top_error_messages": [{"message": m, "count": n} for m, n in errors],
-        }, indent=2)
+    return {
+        "lines": summary.lines, "malformed": malformed,
+        "filtered_out": summary.lines - malformed - summary.matched,
+        "matched": summary.matched, "failures": failures,
+        "failure_percent": rate, "earliest_utc": first, "latest_utc": last,
+        "levels": dict(summary.levels), "rejection_reasons": dict(reasons),
+        "top_failing_services": [{"service": s, "count": n} for s, n in services],
+        "top_error_messages": [{"message": m, "count": n} for m, n in errors],
+    }
 
+
+def render(summary: Summary, fmt: str, limit: int) -> str:
+    data = report_data(summary, limit)
+    if fmt == "json":
+        return json.dumps(data, indent=2)
+    malformed, failures = data["malformed"], data["failures"]
+    rate = data["failure_percent"]
+    services = [(row["service"], row["count"]) for row in data["top_failing_services"]]
+    errors = [(row["message"], row["count"]) for row in data["top_error_messages"]]
+    reasons = data["rejection_reasons"].items()
+    first, last = data["earliest_utc"], data["latest_utc"]
     totals = [
         ("Lines read", str(summary.lines)), ("Malformed", str(malformed)),
         ("Filtered out", str(summary.lines - malformed - summary.matched)),
@@ -51,7 +61,7 @@ def render(summary: Summary, fmt: str, limit: int) -> str:
     if fmt == "text":
         blocks = ["LogLens report"]
         for title, rows in sections:
-            body = "\n".join(f"  {_visible(label)}  {value}" for label, value in rows)
+            body = "\n".join(f"  {visible_text(label)}  {value}" for label, value in rows)
             blocks.append(f"{title}\n{body or '  (none)'}")
         return "\n\n".join(blocks)
     if fmt != "html":
@@ -65,7 +75,7 @@ def render(summary: Summary, fmt: str, limit: int) -> str:
               '</style></head><body><main><h1>LogLens report</h1>']
     for title, rows in sections:
         body = "".join(
-            f'<tr><th scope="row">{escape(_visible(label))}</th><td>{escape(str(value))}</td></tr>'
+            f'<tr><th scope="row">{escape(visible_text(label))}</th><td>{escape(str(value))}</td></tr>'
             for label, value in rows
         )
         blocks.append(f"<section><h2>{escape(title)}</h2>")
