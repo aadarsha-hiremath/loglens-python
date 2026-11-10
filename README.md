@@ -12,9 +12,11 @@ The included fulfillment log has **186 lines, 2 malformed records, and 26 failur
 
 ## Quick start on Windows
 
-From a checkout of the main branch, run these PowerShell commands:
+Install Git and Python 3.11 or newer, then run these commands in PowerShell to download LogLens from the default `main` branch, install the GUI, and launch it:
 
 ```powershell
+git clone https://github.com/aadarsha-hiremath/loglens-python.git
+cd loglens-python
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install ".[gui]"
 .\.venv\Scripts\loglens-gui.exe examples/fulfillment.log
