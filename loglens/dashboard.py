@@ -255,7 +255,8 @@ class Dashboard(QScrollArea):
                 "Of matched records",
             )
         else:
-            values, notes = ("—",) * 4, ("Awaiting a file",) * 4
+            values = ("0", "0", "0", "0.00%")
+            notes = ("No file loaded",) * 4
         for i, (_, metric, note) in enumerate(self.cards):
             strip = self.strips[i]
             pairs = (
