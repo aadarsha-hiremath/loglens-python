@@ -259,6 +259,11 @@ class WindowTests(unittest.TestCase):
     def test_clean_restart_and_save_failure(self):
         w = self.window
         self.assertIsNone(w.source)
+        self.assertIsNone(w.full)
+        self.assertEqual(w.ex.model.rowCount(), 0)
+        self.assertTrue(w.dashboard.welcome.isVisible())
+        self.assertEqual([number.text() for _, number, _ in w.dashboard.cards],
+                         ["0", "0", "0", "0.00%"])
         w.prefs.theme = "Light"
         with patch.object(Preferences, "save", side_effect=PermissionError("denied")):
             w.save()
