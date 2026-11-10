@@ -19,10 +19,12 @@ git clone https://github.com/aadarsha-hiremath/loglens-python.git
 cd loglens-python
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install ".[gui]"
-.\.venv\Scripts\loglens-gui.exe examples/fulfillment.log
+.\.venv\Scripts\loglens-gui.exe
 ```
 
-To open an empty workspace, omit the filename. The equivalent module command is `.\.venv\Scripts\python.exe -m loglens.gui`. On macOS or Linux with a graphical session, create the environment with `python3 -m venv .venv`, install with `.venv/bin/python -m pip install ".[gui]"`, and run `.venv/bin/loglens-gui examples/fulfillment.log`.
+The GUI starts with an empty dashboard (zero statistics) and a **Choose file** action; no demonstration log is loaded automatically. Open your own compatible `.log` or `.txt` file using **Open file**, **Choose file**, or drag-and-drop. To try the included synthetic demonstration data explicitly, run `.\.venv\Scripts\loglens-gui.exe examples/fulfillment.log`.
+
+The equivalent empty-start module command is `.\.venv\Scripts\python.exe -m loglens.gui`. On macOS or Linux with a graphical session, create the environment with `python3 -m venv .venv`, install with `.venv/bin/python -m pip install ".[gui]"`, and run `.venv/bin/loglens-gui` to start empty.
 
 For a CLI-only installation, use `python -m pip install .` in your environment. The CLI also runs directly from the checkout:
 
