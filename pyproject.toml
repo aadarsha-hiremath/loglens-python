@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "loglens-python"
-version = "0.2.0"
+version = "0.3.0"
 description = "A streaming desktop and command-line analyzer for structured application logs"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 dependencies = []
+
+[project.optional-dependencies]
+gui = ["PySide6-Essentials>=6.9,<7"]
 
 [project.urls]
 Repository = "https://github.com/aadarsha-hiremath/loglens-python"

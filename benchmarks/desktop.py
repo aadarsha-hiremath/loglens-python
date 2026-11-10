@@ -1,88 +1,175 @@
-"""Measure real desktop scanning, paging and Tk dispatch on a generated log."""
+"""Measure scan, search, event dispatch, and Qt table paints in a real desktop window."""
 
 import argparse
+import ctypes
 import json
 import platform
+import statistics
+import sys
 import tempfile
-import tkinter as tk
-import tracemalloc
+import time
 from pathlib import Path
-from time import perf_counter
 
-from loglens.desktop_data import PAGE_SIZE
-from loglens.gui import Desktop
+from PySide6 import __version__ as qt_version
+from PySide6.QtCore import QEvent, QEventLoop, QObject, Qt, QTimer
+from PySide6.QtWidgets import QApplication
+
+from loglens.desktop_window import Window
+
+PERIOD = 1 / 60
+
+
+def intervals(times):
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    if not gaps:
+        return {}
+    return {
+        "events": len(times),
+        "median_ms": round(statistics.median(gaps) * 1000, 1),
+        "max_ms": round(max(gaps) * 1000, 1),
+        "gaps_over_33ms": sum(g > 2 * PERIOD for g in gaps),
+        "estimated_missed_slots": sum(max(0, round(g / PERIOD) - 1) for g in gaps),
+    }
+
+
+def working_set():
+    if sys.platform != "win32":
+        return None
+    from ctypes import wintypes
+
+    class Memory(ctypes.Structure):
+        _fields_ = [
+            ("size", wintypes.DWORD),
+            ("faults", wintypes.DWORD),
+            *((k, ctypes.c_size_t) for k in ("peak", "working", "a", "b", "c", "d", "e", "f")),
+        ]
+
+    counter = Memory()
+    counter.size = ctypes.sizeof(counter)
+    handle = ctypes.windll.kernel32.GetCurrentProcess
+    handle.restype = wintypes.HANDLE
+    measure = ctypes.windll.psapi.GetProcessMemoryInfo
+    measure.argtypes = (wintypes.HANDLE, ctypes.POINTER(Memory), wintypes.DWORD)
+    return counter.peak if measure(handle(), ctypes.byref(counter), counter.size) else None
+
+
+class Paints(QObject):
+    def __init__(self):
+        super().__init__()
+        self.times = []
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Paint:
+            self.times.append(time.perf_counter())
+        return False
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--rows", type=int, default=100_000)
-    parser.add_argument("--trace", action="store_true", help="measure Python allocations during analysis")
+    parser.add_argument("--rows", type=int, default=100000)
+    parser.add_argument("--unique", action="store_true", help="one distinct error message per row")
     args = parser.parse_args()
     if args.rows < 1:
-        parser.error("--rows must be positive")
-    with tempfile.TemporaryDirectory() as temp:
-        folder = Path(temp)
-        path = folder / "batch.log"
-        with path.open("w", encoding="utf-8", newline="\n") as file:
+        parser.error("rows must be positive")
+    app = QApplication([])
+    with tempfile.TemporaryDirectory() as tmp:
+        base = Path(tmp)
+        source = base / "generated.log"
+        with source.open("w", encoding="utf8", newline="\n") as stream:
             for i in range(args.rows):
-                file.write(f"2026-01-15T09:00:00Z | ERROR | worker-{i % 7} | Request {i:09d} failed\n")
-        root = tk.Tk()
-        app = Desktop(root, folder/"settings.json")
-        root.update()
-        start = last = perf_counter()
-        callbacks = 0
-        worst_gap = 0.0
+                group = "Retry" if i % 2 else "Timeout"
+                msg = f"{group} request {i if args.unique else i % 6:08d}"
+                stream.write(
+                    f"2026-01-15T09:{i // 60 % 60:02}:{i % 60:02}Z | ERROR | worker-{i % 7} | {msg}\n"
+                )
+        w = Window(base / "settings.json")
+        w.resize(1180, 730)
+        w.show()
+        app.processEvents()
+        beats = []
+        timer = QTimer(timerType=Qt.TimerType.PreciseTimer, interval=16)
+        timer.timeout.connect(lambda: beats.append(time.perf_counter()))
+        timer.start()
 
-        def heartbeat():
-            nonlocal last, callbacks, worst_gap
-            now = perf_counter()
-            worst_gap = max(worst_gap, now - last)
-            callbacks += 1
-            last = now
-            if app.future is not None:
-                root.after(25, heartbeat)
-            else:
-                root.quit()
+        def wait():
+            end = time.perf_counter() + 90
+            while w.jobs.active or w.reader.active:
+                app.processEvents()
+                time.sleep(0.001)
+                if time.perf_counter() > end:
+                    raise RuntimeError("Worker timeout")
 
-        if args.trace:
-            tracemalloc.start()
         try:
-            app.scan(path)
-            root.after(25, heartbeat)
-            root.mainloop()
-            elapsed = perf_counter() - start
-            peak = tracemalloc.get_traced_memory()[1] if args.trace else None
-            if args.trace:
-                tracemalloc.stop()
-            if app.summary is None or app.summary.matched != args.rows:
-                raise RuntimeError(app.status.get())
-            last_page = (args.rows - 1) // PAGE_SIZE
-            paging_start = perf_counter()
-            app.show_page(last_page, ("message", True))
+            start = time.perf_counter()
+            beats.clear()
+            beats.append(start)
+            w.load_file(source)
+            wait()
+            scan = time.perf_counter() - start
+            assert w.full.matched == args.rows, w.status.text()
+            beats.append(time.perf_counter())
+            scan_dispatch = intervals(beats)
+            w.navigate("Log explorer")
+            w.ex.size.setCurrentText("500")
+            wait()
+            w.ex.search.setText("Retry")
+            start = time.perf_counter()
+            w.apply_filters()
+            wait()
+            search = time.perf_counter() - start
+            assert w.filtered.matched == args.rows // 2
+            beats.clear()
+            paints = Paints()
+            viewport = w.ex.table.viewport()
+            viewport.installEventFilter(paints)
+            bar = w.ex.table.verticalScrollBar()
+            loop = QEventLoop()
+            frames = 0
 
-            def check_page():
-                if app.future is None:
-                    root.quit()
-                else:
-                    root.after(10, check_page)
+            def scroll():
+                nonlocal frames
+                bar.setValue((bar.value() + 13) % (bar.maximum() + 1))
+                frames += 1
+                if frames >= 120:
+                    loop.quit()
 
-            root.after(10, check_page)
-            root.mainloop()
-            paging = perf_counter() - paging_start
-            children = app.records.get_children()
-            if app.page != last_page or app.records.set(children[-1], "message") != "Request 000000000 failed":
-                raise RuntimeError("Incorrect globally sorted last page")
-            print(json.dumps({
-                "python": platform.python_version(), "os": platform.platform(), "rows": args.rows,
-                "source_bytes": path.stat().st_size, "snapshot_bytes": app.db.stat().st_size,
-                "scan_and_first_page_seconds": round(elapsed, 3), "tk_callbacks": callbacks,
-                "max_callback_gap_ms": round(worst_gap * 1000, 1), "peak_traced_bytes": peak,
-                "sorted_last_page_seconds": round(paging, 3), "last_page_rows": len(children),
-            }, indent=2))
+            scrolling = QTimer(timerType=Qt.TimerType.PreciseTimer, interval=16)
+            scrolling.timeout.connect(scroll)
+            scrolling.start()
+            loop.exec()
+            scrolling.stop()
+            viewport.removeEventFilter(paints)
+            scroll_dispatch = intervals(beats)
+            beats.clear()
+            for i in range(8):
+                w.navigate(("Dashboard", "Log explorer")[i % 2])
+                until = time.perf_counter() + 0.17
+                while time.perf_counter() < until:
+                    app.processEvents()
+                    time.sleep(0.001)
+            print(
+                json.dumps(
+                    dict(
+                        python=platform.python_version(),
+                        qt=qt_version,
+                        os=platform.platform(),
+                        rows=args.rows,
+                        unique=args.unique,
+                        scan_s=round(scan, 3),
+                        search_s=round(search, 3),
+                        disk_bytes=w.db.stat().st_size,
+                        peak_working_set=working_set(),
+                        scan_dispatch=scan_dispatch,
+                        scroll_dispatch=scroll_dispatch,
+                        scroll_paints=intervals(paints.times),
+                        navigation_dispatch=intervals(beats),
+                    ),
+                    separators=(",", ":"),
+                )
+            )
         finally:
-            if args.trace:
-                tracemalloc.stop()
-            app.close()
+            timer.stop()
+            w.close()
 
 
 if __name__ == "__main__":
