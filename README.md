@@ -13,7 +13,7 @@ The included fulfillment log has **186 lines, 2 malformed records, and 26 failur
 ## Requirements
 
 - The core and CLI require **Python 3.11 or newer** and use only the standard library at runtime.
-- The optional desktop extra uses PySide6 Essentials. Use **Python 3.11–3.14** with a compatible Qt wheel for your operating system and architecture. The desktop suite runs in CI on Python 3.11 and 3.14, and the native Windows checks used Python 3.12. The audited PySide6 Essentials 6.12.0 wheel declares Python 3.10 through 3.15, and LogLens still requires at least 3.11.
+- The optional desktop extra uses PySide6 Essentials. Use **Python 3.11–3.14** with a compatible Qt wheel for your operating system and architecture. The desktop suite runs in CI on Python 3.11 and 3.14, and the native Windows checks used Python 3.12. On Python versions below 3.12, the GUI extra excludes PySide6 Essentials 6.12.0 because its Boolean signal handling can crash CPython ([PYSIDE-3474](https://qt-project.atlassian.net/browse/PYSIDE-3474)).
 - Windows has native desktop coverage. Linux runs the Qt suite offscreen in CI. macOS desktop compatibility remains unverified.
 
 ## Quick start on Windows

@@ -13,7 +13,11 @@ license-files = ["LICENSE"]
 dependencies = []
 
 [project.optional-dependencies]
-gui = ["PySide6-Essentials>=6.9,<7"]
+gui = [
+    "PySide6-Essentials>=6.9,<7",
+    # PYSIDE-3474 can abort CPython before 3.12 with the 6.12.0 wheels.
+    "PySide6-Essentials!=6.12.0; python_version < '3.12'",
+]
 
 [project.urls]
 Repository = "https://github.com/aadarsha-hiremath/loglens-python"
