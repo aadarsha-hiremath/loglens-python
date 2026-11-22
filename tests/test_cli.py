@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
 from unittest.mock import patch
 
@@ -74,6 +75,55 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, "")
             self.assertIn("cafÃ© &amp; retry", output.read_text(encoding="utf-8"))
+
+    def test_redirected_html_is_utf8_with_a_legacy_stdout_encoding(self):
+        class MessageCells(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.in_cell = False
+                self.cells = []
+                self.tags = []
+
+            def handle_starttag(self, tag, attrs):
+                self.tags.append(tag)
+                if tag == "th":
+                    self.in_cell = True
+                    self.cells.append("")
+
+            def handle_endtag(self, tag):
+                if tag == "th":
+                    self.in_cell = False
+
+            def handle_data(self, data):
+                if self.in_cell:
+                    self.cells[-1] += data
+
+        messages = [
+            "ASCII message", "caf\u00e9", "\u0c95\u0ca8\u0ccd\u0ca8\u0ca1",
+            "\u96ea", "\U0001f680", """<script> & \'single\' "double" \u00e9 \u0c95 \U0001f680""",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "unicode.log"
+            path.write_text(
+                "".join(f"2026-01-01T00:00:00Z | ERROR | api | {message}\n" for message in messages),
+                encoding="utf8",
+            )
+            result = subprocess.run(
+                [sys.executable, "-m", "loglens", str(path), "--format", "html", "--top", "10"],
+                cwd=ROOT, capture_output=True, check=True,
+                env={**os.environ, "PYTHONIOENCODING": "cp1252"},
+            )
+        self.assertEqual(result.stderr, b"")
+        html = result.stdout.decode("utf8", errors="strict")
+        self.assertTrue(html.startswith("<!doctype html>"))
+        self.assertTrue(html.endswith("</html>\n"))
+        self.assertIn('<meta charset="utf-8">', html)
+        self.assertIn("&lt;script&gt; &amp; &#x27;single&#x27; &quot;double&quot;", html)
+        parsed = MessageCells()
+        parsed.feed(html)
+        self.assertNotIn("script", parsed.tags)
+        for message in messages:
+            self.assertIn(message, parsed.cells)
 
     def test_refuses_input_as_output(self):
         with tempfile.TemporaryDirectory() as tmp:

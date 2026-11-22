@@ -50,6 +50,7 @@ class Window(Workspace, QMainWindow):
         self.page_index = 0
         self.display_order = None
         self.applied = Scope()
+        self.close_after_export = False
         self.jobs = Jobs(self)
         self.reader = Jobs(self)
         self.autosave = QTimer(self, interval=300, singleShot=True)
@@ -212,6 +213,7 @@ class Window(Workspace, QMainWindow):
         self.jobs.progress.connect(self.show_progress)
         self.jobs.error.connect(self.failed)
         self.jobs.idle.connect(self.update_controls)
+        self.jobs.idle.connect(self.finish_close)
         self.reader.error.connect(self.notice)
         e.search.textEdited.connect(self.schedule_search)
         e.case.toggled.connect(self.schedule_search)
@@ -500,6 +502,8 @@ class Window(Workspace, QMainWindow):
             self.dirty()
 
     def reset(self):
+        if self.jobs.exporting:
+            return
         if not self.confirm(
             "Reset settings", "Reset appearance, layout, filters, presets and recent files?"
         ):
@@ -574,6 +578,8 @@ class Window(Workspace, QMainWindow):
             self.apply_filters()
 
     def pick(self):
+        if self.jobs.exporting:
+            return
         path, _ = QFileDialog.getOpenFileName(
             self, "Open log file", "", "Log files (*.log *.txt);;All files (*)"
         )
@@ -591,7 +597,17 @@ class Window(Workspace, QMainWindow):
             self.load_file(Path(urls[0].toLocalFile()))
             event.acceptProposedAction()
 
+    def finish_close(self):
+        if self.close_after_export:
+            self.close_after_export = False
+            self.close()
+
     def closeEvent(self, event):
+        if self.jobs.exporting:
+            self.close_after_export = True
+            self.cancel_work()
+            event.ignore()
+            return
         self.search_timer.stop()
         self.jobs.shutdown()
         self.reader.shutdown()

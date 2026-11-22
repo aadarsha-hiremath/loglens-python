@@ -8,20 +8,15 @@ from collections import Counter
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 from .analysis import Filters, Summary, matching_records
-from .output import validate_output
+from .output import Cancelled as Cancelled
+from .output import check_cancel, validate_output, write_atomic
 from .parsing import FAILURES, LEVELS, parse_timestamp
 
 COLUMNS = ("timestamp", "level", "service", "message")
 PAGE_SIZE = 100
 MAX_TOP = 100
-
-
-class Cancelled(Exception):
-    """A worker request was superseded or cancelled."""
 
 
 @dataclass(frozen=True)
@@ -235,18 +230,7 @@ def records(db, ids, cancel):
 
 
 def export_selection(db, source, path, ids, cancel):
+    check_cancel(cancel)
     validate_output(path, source)
-    tmp = None
-    try:
-        with NamedTemporaryFile(
-            mode="w", encoding="utf8", newline="\n", dir=path.parent, delete=False
-        ) as stream:
-            tmp = Path(stream.name)
-            for record in records(db, ids, cancel):
-                stream.write(json.dumps(record, ensure_ascii=False) + "\n")
-        if cancel.is_set():
-            raise Cancelled()
-        os.replace(tmp, path)
-    finally:
-        if tmp:
-            tmp.unlink(missing_ok=True)
+    with closing(records(db, ids, cancel)) as selected:
+        write_atomic(path, (json.dumps(record, ensure_ascii=False) + "\n" for record in selected), cancel)

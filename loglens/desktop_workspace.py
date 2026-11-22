@@ -18,7 +18,7 @@ from .desktop_data import (
     timeline,
 )
 from .reporting import render
-from .output import validate_output, write_text
+from .output import check_cancel, validate_output, write_text
 
 
 class Workspace:
@@ -27,6 +27,8 @@ class Workspace:
             self.load_file(self.source)
 
     def load_file(self, path):
+        if self.jobs.exporting:
+            return
         path = Path(path).absolute()
         if path.suffix.lower() not in (".log", ".txt"):
             self.notice("Choose a .log or .txt application log.")
@@ -96,6 +98,8 @@ class Workspace:
     def cancel_work(self):
         self.search_timer.stop()
         self.jobs.cancel()
+        if self.jobs.exporting:
+            return
         self.restore_page_controls()
         self.reader.cancel(False)
         self.update_controls()
@@ -110,6 +114,11 @@ class Workspace:
         self.apply_filters()
 
     def apply_filters(self):
+        if self.jobs.exporting:
+            # A search typed just before export still needs its debounce callback.
+            if self.ex.scope() != self.applied:
+                self.search_timer.start()
+            return
         self.search_timer.stop()
         scope = self.ex.scope()
         try:
@@ -252,6 +261,7 @@ class Workspace:
                 "Exporting selected records…",
                 lambda cancel, _: export_selection(db, source, Path(path), ids, cancel),
                 lambda _: self.notice(f"Saved {len(ids):,} records to {path}"),
+                export=True,
             )
 
     def export(self, fmt, filtered=False):
@@ -266,17 +276,23 @@ class Workspace:
         source, limit = self.source, self.prefs.top
 
         def work(cancel, _):
+            check_cancel(cancel)
             validate_output(Path(path), source)
-            text = render(summary, fmt, limit)
-            if not cancel.is_set():
-                write_text(Path(path), text)
+            write_text(Path(path), render(summary, fmt, limit), cancel)
 
-        self.jobs.start("Exporting report…", work, lambda _: self.notice(f"Saved {fmt.upper()} to {path}"))
+        self.jobs.start(
+            "Exporting report…", work, lambda _: self.notice(f"Saved {fmt.upper()} to {path}"), export=True
+        )
 
     def update_controls(self):
         busy = self.jobs.active
+        exporting = self.jobs.exporting
+        self.open_btn.setEnabled(not exporting)
+        self.recents.setEnabled(not exporting)
+        self.ex.setEnabled(not exporting)
         self.progress.setVisible(busy)
         self.cancel.setVisible(busy)
+        self.cancel.setEnabled(not exporting or not self.jobs.token.is_set())
         self.refresh.setEnabled(bool(self.source) and not busy)
         self.exports.setEnabled(bool(self.full) and not busy)
         self.ex.size.setEnabled(not busy)

@@ -8,23 +8,29 @@ LogLens turns a structured application log into a failure dashboard and a search
 
 ![LogLens dashboard for the fulfillment sample, showing 184 valid records and 26 failures](assets/desktop-dashboard.png)
 
-The included fulfillment log has **186 lines, 2 malformed records, and 26 failures among 184 valid records (14.13%)**. The desktop uses Python 3.11+, Qt model/view, and SQLite. The standard-library CLI shares its streaming parser, UTC handling, and report format with the desktop.
+The included fulfillment log has **186 lines, 2 malformed records, and 26 failures among 184 valid records (14.13%)**. The desktop uses Qt model/view and SQLite. The standard-library CLI shares its streaming parser, UTC handling, and report format with the desktop.
+
+## Requirements
+
+- The core and CLI require **Python 3.11 or newer** and use only the standard library at runtime.
+- The optional desktop extra uses PySide6 Essentials. Use **Python 3.11–3.14** with a compatible Qt wheel for your operating system and architecture. The desktop suite runs in CI on Python 3.11 and 3.14, and the native Windows checks used Python 3.12. The audited PySide6 Essentials 6.12.0 wheel declares Python 3.10 through 3.15, and LogLens still requires at least 3.11.
+- Windows has native desktop coverage. Linux runs the Qt suite offscreen in CI. macOS desktop compatibility remains unverified.
 
 ## Quick start on Windows
 
-Install Git and Python 3.11 or newer, then run these commands in PowerShell to download LogLens from the default `main` branch, install the GUI, and launch it:
+Install Git and a Python version listed for the desktop. These PowerShell commands use Python 3.12. Replace `-3.12` with your installed version if needed.
 
 ```powershell
 git clone https://github.com/aadarsha-hiremath/loglens-python.git
 cd loglens-python
-py -3 -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install ".[gui]"
 .\.venv\Scripts\loglens-gui.exe
 ```
 
 The GUI starts with an empty dashboard (zero statistics) and a **Choose file** action; no demonstration log is loaded automatically. Open your own compatible `.log` or `.txt` file using **Open file**, **Choose file**, or drag-and-drop. To try the included synthetic demonstration data explicitly, run `.\.venv\Scripts\loglens-gui.exe examples/fulfillment.log`.
 
-The equivalent empty-start module command is `.\.venv\Scripts\python.exe -m loglens.gui`. On macOS or Linux with a graphical session, create the environment with `python3 -m venv .venv`, install with `.venv/bin/python -m pip install ".[gui]"`, and run `.venv/bin/loglens-gui` to start empty.
+The equivalent empty-start module command is `.\.venv\Scripts\python.exe -m loglens.gui`. On Linux with a graphical session and Qt's system libraries, use a Python version listed for the desktop, for example `python3.12 -m venv .venv`. Install with `.venv/bin/python -m pip install ".[gui]"` and run `.venv/bin/loglens-gui` to start empty.
 
 For a CLI-only installation, use `python -m pip install .` in your environment. The CLI also runs directly from the checkout:
 
@@ -38,7 +44,7 @@ python -m loglens examples/checkout.log
 2. **Read the dashboard.** **Entire file** covers all valid records. **Explorer matches** shows the applied search and filters. Lines read, valid, and malformed always describe the input. Failure percentage uses the matched record count. The time chart divides the selected UTC range into 20 equal intervals and shows both record and failure counts.
 3. **Investigate a record.** In **Log explorer**, type to search across complete messages. **Match case** switches from Unicode case-folded search to exact case. Open **Filters** to combine severity, comma-separated exact service names, and inclusive timestamp bounds. Choose **Apply filters**, or **Clear** to start again. Save a named preset to reuse the combination. The applied-filter caption and match count describe the displayed results.
 4. **Browse every match.** Click a heading for a global sort, use the page selector to jump, or choose 50–500 rows per page. Severity sorts from DEBUG through CRITICAL. Ties retain input order. Cells preview up to 512 characters. Select a row to inspect its source line, UTC timestamp, severity, service and complete message. Longer text is readable in 8,192-character parts.
-5. **Export findings.** The header **Export** menu offers entire-file and explorer-match summaries as JSON or self-contained HTML. Select one or more rows on a page and choose **Export selected** for UTF-8 JSON Lines. Each line contains `line` (one-based source line), `timestamp` (UTC), `level`, `service`, and the complete `message`. The inspector also copies the record as JSON or just its original message.
+5. **Export findings.** The header **Export** menu offers entire-file and explorer-match summaries as JSON or self-contained HTML. Select one or more rows on a page and choose **Export selected** for UTF-8 JSON Lines. Each line contains `line` (one-based source line), `timestamp` (UTC), `level`, `service`, and the complete `message`. The inspector also copies the record as JSON or just its original message. An export is saved when it replaces the destination. Cancellation before replacement preserves any existing file.
 
 ![Log explorer with ERROR and CRITICAL selected and a source record open in the inspector](assets/desktop-explorer.png)
 
@@ -77,6 +83,8 @@ python -m loglens examples/checkout.log --format html -o checkout.html
 ```
 
 Open `checkout.html` in a browser to view the [HTML report example](assets/checkout-report.png). It works offline. Repeated levels or services select any listed value in that category. All supplied categories must match. Time bounds include both endpoints and compare UTC instants. Records can arrive out of order.
+
+Redirected HTML is emitted as UTF-8, matching the report's charset declaration. Use `-o` to write a report directly.
 
 ## Example output
 
