@@ -7,7 +7,9 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
+from threading import Event
 from unittest.mock import patch
 
 try:
@@ -98,6 +100,151 @@ class WindowTests(unittest.TestCase):
         self.assertIn("missing", w.status.text())
         w.load_file(self.folder / "bad.zip")
         self.assertIn(".log", w.status.text())
+
+    def test_report_export_cancels_before_replacement_and_allows_retry(self):
+        w = self.window
+        w.load_file(SAMPLE)
+        self.wait()
+        target = self.folder / "report.json"
+        target.write_bytes(b"previous")
+        staged, resume = Event(), Event()
+        real_temp = tempfile.NamedTemporaryFile
+        activity = []
+        w.jobs.activity.connect(activity.append)
+
+        @contextmanager
+        def pause_after_staging(**kwargs):
+            with real_temp(**kwargs) as stream:
+                yield stream
+            staged.set()
+            if not resume.wait(5):
+                raise TimeoutError("test did not release staged export")
+
+        with (
+            patch.object(QFileDialog, "getSaveFileName", return_value=(str(target), "")),
+            patch("loglens.output.NamedTemporaryFile", side_effect=pause_after_staging),
+        ):
+            w.export("json")
+            try:
+                self.assertTrue(staged.wait(5))
+                w.cancel_work()
+                w.cancel_work()
+                self.assertTrue(w.jobs.active)
+                self.assertFalse(w.cancel.isEnabled())
+                self.assertEqual(w.status.text(), "Cancelling export…")
+                w.load_file(self.folder / "other.log")
+                w.apply_filters()
+            finally:
+                resume.set()
+            self.wait()
+        self.assertEqual(activity.count("Cancelling export…"), 1)
+        self.assertEqual(w.status.text(), "Cancelled")
+        self.assertEqual(target.read_bytes(), b"previous")
+        self.assertEqual(set(self.folder.iterdir()) - {w.path, target}, set())
+        with patch.object(QFileDialog, "getSaveFileName", return_value=(str(target), "")):
+            w.export("json")
+        self.wait()
+        self.assertTrue(w.status.text().startswith("Saved JSON"))
+        self.assertEqual(json.loads(target.read_bytes())["matched"], 9)
+
+    def test_save_remains_successful_when_cancel_precedes_gui_delivery(self):
+        w = self.window
+        w.load_file(SAMPLE)
+        self.wait()
+        for kind in ("html", "jsonl"):
+            with self.subTest(kind=kind):
+                target = self.folder / f"output.{kind}"
+                target.write_bytes(b"previous")
+                if kind == "jsonl":
+                    w.navigate("Log explorer")
+                    w.ex.table.selectRow(0)
+                    self.wait()
+                with patch.object(QFileDialog, "getSaveFileName", return_value=(str(target), "")):
+                    if kind == "html":
+                        w.export("html")
+                    else:
+                        w.save_selected()
+                # Hold delivery by waiting for the worker without pumping Qt events.
+                w.jobs.pending.result(timeout=5)
+                self.assertTrue(w.jobs.active)
+                payload = target.read_bytes()
+                self.assertNotEqual(payload, b"previous")
+                w.cancel_work()
+                w.cancel_work()
+                self.wait()
+                self.assertTrue(w.status.text().startswith("Saved"))
+                self.assertEqual(target.read_bytes(), payload)
+                if kind == "jsonl":
+                    self.assertEqual(json.loads(payload)["line"], 1)
+
+    def test_failed_replacement_reports_error_even_after_cancel_request(self):
+        w = self.window
+        w.load_file(SAMPLE)
+        self.wait()
+        target = self.folder / "denied.json"
+        target.write_bytes(b"previous")
+        entered, resume = Event(), Event()
+
+        real_replace = os.replace
+
+        def denied(tmp, dest):
+            if dest != target:
+                return real_replace(tmp, dest)
+            entered.set()
+            if not resume.wait(5):
+                raise TimeoutError("test did not release replacement")
+            raise PermissionError("replacement permission denied")
+
+        with (
+            patch.object(QFileDialog, "getSaveFileName", return_value=(str(target), "")),
+            patch("loglens.output.os.replace", side_effect=denied),
+        ):
+            w.export("json")
+            try:
+                self.assertTrue(entered.wait(5))
+                w.cancel_work()
+            finally:
+                resume.set()
+            self.wait()
+        self.assertEqual(w.status.text(), "replacement permission denied")
+        self.assertEqual(target.read_bytes(), b"previous")
+        self.assertEqual(set(self.folder.iterdir()) - {target, w.path}, set())
+
+    def test_close_waits_for_export_outcome_and_releases_workers(self):
+        w = self.window
+        w.load_file(SAMPLE)
+        self.wait()
+        target = self.folder / "committed.json"
+        entered, resume = Event(), Event()
+        real_replace = os.replace
+
+        def replace_then_pause(tmp, dest):
+            real_replace(tmp, dest)
+            if dest == target:
+                entered.set()
+                if not resume.wait(5):
+                    raise TimeoutError("test did not release committed export")
+
+        temp_db = Path(w.temp.name)
+        with (
+            patch.object(QFileDialog, "getSaveFileName", return_value=(str(target), "")),
+            patch("loglens.output.os.replace", side_effect=replace_then_pause),
+        ):
+            w.export("json")
+            try:
+                self.assertTrue(entered.wait(5))
+                self.assertFalse(w.close())
+                self.assertTrue(w.jobs.active)
+                self.assertTrue(temp_db.exists())
+            finally:
+                resume.set()
+            self.wait()
+        self.assertFalse(w.isVisible())
+        self.assertFalse(temp_db.exists())
+        self.assertTrue(w.status.text().startswith("Saved JSON"))
+        self.assertEqual(json.loads(target.read_bytes())["matched"], 9)
+        with self.assertRaisesRegex(RuntimeError, "shutdown"):
+            w.jobs.executor.submit(lambda: None)
 
     def test_paging_sort_cancel_and_latest_query_wins(self):
         w = self.window

@@ -67,8 +67,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         report = render(summary, args.format, args.top)
         if args.output:
             write_text(args.output, report)
+        elif args.format == "html" and not sys.stdout.isatty() and hasattr(sys.stdout, "buffer"):
+            # Match HTML's declared charset even when the pipe uses a legacy code page.
+            sys.stdout.buffer.write((report + "\n").encode("utf-8"))
+            sys.stdout.buffer.flush()
         else:
-            # Redirected Windows consoles may use a legacy encoding.
+            # A console or a non-HTML stream may use a legacy encoding.
             encoding = sys.stdout.encoding or "utf-8"
             print(report.encode(encoding, "backslashreplace").decode(encoding))
             sys.stdout.flush()

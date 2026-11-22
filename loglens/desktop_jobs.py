@@ -21,15 +21,19 @@ class Jobs(QObject):
         self.pending = None
         self.token = Event()
         self.active = False
+        self.exporting = False
         self.label = ""
         self.timer = QTimer(self, interval=14)
         self.timer.timeout.connect(self.drain)
 
-    def start(self, label, work, deliver):
+    def start(self, label, work, deliver, *, export=False):
+        if self.exporting:
+            raise RuntimeError("Wait for the export to finish before starting another job.")
         self.cancel(announce=False)
         generation = self.generation
         self.token = token = Event()
         self.active = True
+        self.exporting = export
         self.label = label
         self.activity.emit(label)
 
@@ -41,7 +45,13 @@ class Jobs(QObject):
         self.timer.start()
 
     def cancel(self, announce=True):
+        already_requested = self.token.is_set()
         self.token.set()
+        if self.exporting:
+            # Keep delivering this worker's outcome even if Cancel arrives after replacement.
+            if announce and not already_requested:
+                self.activity.emit("Cancelling export…")
+            return
         self.generation += 1
         if self.pending:
             self.pending.cancel()
@@ -62,10 +72,12 @@ class Jobs(QObject):
                 self.progress.emit(value)
                 continue
             self.active = False
+            awaiting_export, self.exporting = self.exporting, False
             try:
                 result = value.result()
             except CancelledError:
-                pass
+                if awaiting_export:
+                    self.activity.emit("Cancelled")
             except Exception as exc:
                 self.error.emit(str(exc) or "Operation cancelled.")
             else:
